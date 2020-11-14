@@ -374,7 +374,7 @@ let private generateTruthTable (simData : SimulationData) =
                 row <- row + s
 
         for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in simOutputs do
-            row <- row + "\t0b"
+            row <- row + if List.length wireData > 1 then "\t0b" else "\t"
             for bit in List.rev wireData do
                 let s = match bit with
                         | Zero -> "0"
