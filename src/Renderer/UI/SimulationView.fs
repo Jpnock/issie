@@ -421,22 +421,6 @@ let private viewSimulationData (simData : SimulationData) model dispatch =
             viewStatefulComponents (extractStatefulComponents simData.Graph) simData.NumberBase model dispatch
         ]
 
-    let getInputState ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) =
-        assertThat (List.length wireData = width)
-        <| sprintf "Inconsistent wireData length in viewSimulationInput for %s: expcted %d but got %d" inputLabel width wireData.Length
-        let valueHandle =
-            match wireData with
-            | [] -> failwith "what? Empty wireData while creating a line in simulation inputs."
-            | [bit] ->
-                match bit with
-                    | Zero -> "0"
-                    | One -> "1"
-            | bits ->
-                "NOT IMPLEMENTED FOR MULTI INPUT BITS"
-           
-        printf "%s %s" (makeIOLabel inputLabel width) valueHandle
-        sprintf "%s %s" (makeIOLabel inputLabel width) valueHandle
-
     let maybeTruthTable = match true with
                             | false -> div [] []
                             | true -> div [] [
