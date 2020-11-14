@@ -249,8 +249,6 @@ let viewSimulationError (simError : SimulationError) =
     ]
 
 let private generateTruthTable (simData : SimulationData) = 
-    // TODO: support for multi-width inputs
-
     // 1) Store old state
     let originalInputState = (extractSimulationIOs simData.Inputs simData.Graph)
 
