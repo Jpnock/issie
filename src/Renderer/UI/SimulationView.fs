@@ -270,13 +270,11 @@ let private generateTruthTable (simData : SimulationData) =
                         numInputs <- numInputs + 1
                         match bit with
                         | Zero -> simGraph
-                        | One -> feedSimulationInput simGraph (ComponentId inputId) [Zero]                   
+                        | One -> feedSimulationInput simGraph (ComponentId inputId) [Zero]
                     | bits ->
                         inputMapping <- List.append inputMapping [numInputs]
                         numInputs <- numInputs + List.length bits
                         feedSimulationInput simGraph (ComponentId inputId) [ for a in 1 .. (List.length bits) do yield Zero ]
-
-
 
     let bitNumberToInputIndex row =
         let mutable index = 0
@@ -304,18 +302,19 @@ let private generateTruthTable (simData : SimulationData) =
         let extendedBinRowNum = extendString binRowNum numInputs
 
         let setInput ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) state offset = 
+            // Required as we want to set the LSB first, not MSB and the wireData is stored [LSB, .., MSB]                           
+            let reversedOffset = (List.length wireData) - 1 - offset        
             let curState = match wireData with
                            | [bit] -> bit
-                           | bits -> bits.[offset]
+                           | bits -> bits.[reversedOffset]
                            | _ -> failwith "not implemented (set input)"
+            let mapping = List.mapi (fun i v -> if i = reversedOffset then state else v) wireData
             match curState with
             | Zero ->
-                let mapping = List.mapi (fun i v -> if i = offset then state else v) wireData
                 match state with
                 | One -> feedSimulationInput simGraph (ComponentId inputId) mapping
                 | _ -> simGraph
             | One ->
-                let mapping = List.mapi (fun i v -> if i = offset then state else v) wireData
                 match state with
                 | Zero -> feedSimulationInput simGraph (ComponentId inputId) mapping
                 | _ -> simGraph
@@ -331,6 +330,8 @@ let private generateTruthTable (simData : SimulationData) =
             let inputIndex = bitNumberToInputIndex bitNum
             let input = inputStatesList.[inputIndex]
             let bitOffset = bitNum - inputMapping.[inputIndex]
+            // TODO(jpnock): we can optimise this by setting the whole input in
+            // one go if it's a multi-bit input
             simGraph <- match state with
                         | '0' -> setInput input Zero bitOffset
                         | '1' -> setInput input One bitOffset
@@ -351,7 +352,7 @@ let private generateTruthTable (simData : SimulationData) =
         | [bit] ->
             header <- header + "\t" + label             
         | bits ->
-            for i in [0 .. (List.length bits - 1)] do
+            for i in [ (List.length bits - 1) .. -1 .. 0 ] do
                 header <- header + "\t" + sprintf "%c%d" (Seq.head label) i
     
     for ((ComponentId inputId, ComponentLabel label, width), wireData) in simOutputs do
@@ -367,22 +368,20 @@ let private generateTruthTable (simData : SimulationData) =
         let simOutputs = extractSimulationIOs simData.Outputs simGraph
 
         for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in simInputs do
-            for bit in wireData do
+            for bit in List.rev wireData do
+                // A3, A2, A1, A0
                 let s = match bit with
                         | Zero -> "\t0"
                         | One -> "\t1"                
                 row <- row + s
 
         for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in simOutputs do
-            let s = match wireData with
-                    | bits ->
-                        sprintf "%A" wireData
-                    | [bit] ->
-                        match bit with
-                        | Zero -> "\t0"
-                        | One -> "\t1"
-                    | _ -> failwith "not implemented (simOutputs truth table sequence)"
-            row <- row + s
+            row <- row + "\t0b"
+            for bit in List.rev wireData do
+                let s = match bit with
+                        | Zero -> "0"
+                        | One -> "1"                
+                row <- row + s
         
         rows <- List.append rows [row]
 
