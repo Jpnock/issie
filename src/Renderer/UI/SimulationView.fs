@@ -104,6 +104,13 @@ let private splittedLine leftContent rightConent =
         ]
     ]
 
+let rec private intToBinary i =
+    match i with
+    | 0 | 1 -> string i
+    | _ ->
+        let bit = string (i % 2)
+        (intToBinary (i / 2)) + bit    
+
 /// Pretty print a label with its width.
 let private makeIOLabel label width =
     let label = cropToLength 15 true label
@@ -241,6 +248,146 @@ let viewSimulationError (simError : SimulationError) =
         error
     ]
 
+let private generateTruthTable (simData : SimulationData) = 
+    // 1) Store old state
+    let originalInputState = (extractSimulationIOs simData.Inputs simData.Graph)
+
+    let mutable simGraph = simData.Graph
+
+    let mutable numInputs = 0
+
+    // Contains a list of the first input
+    let mutable inputMapping = []
+
+    // 2) Set all inputs to 0
+    for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in originalInputState do
+        simGraph <- match wireData with
+                    | [] -> failwith "not implemented (zero input bits generating truth table)" 
+                    | [bit] ->
+                        inputMapping <- List.append inputMapping [numInputs]
+                        numInputs <- numInputs + 1
+                        match bit with
+                        | Zero -> simGraph
+                        | One -> feedSimulationInput simGraph (ComponentId inputId) [Zero]
+                    | bits ->
+                        inputMapping <- List.append inputMapping [numInputs]
+                        numInputs <- numInputs + List.length bits
+                        feedSimulationInput simGraph (ComponentId inputId) [ for a in 1 .. (List.length bits) do yield Zero ]
+
+    let bitNumberToInputIndex row =
+        let mutable index = 0
+        let mutable found = -1
+        let inputMappingLength = List.length inputMapping
+        while found = -1 && index < inputMappingLength do
+            found <- if inputMapping.[index] = row then index
+                     else if inputMapping.[index] > row then index - 1
+                     else -1                     
+            index <- index + 1
+        if found = -1 then (List.length inputMapping) - 1
+        else found            
+
+    // TODO: implement as grey code so this is quicker
+    // 3) Between 0 to 2^num inputs - 1, calc the value of the outputs
+    let doInputSim rowNum =
+        let binRowNum = intToBinary rowNum
+
+        let rec extendString s len =
+            let strLen = String.length s
+            match strLen with
+            | x when x = len -> s
+            | _ -> extendString ("0" + s) len
+
+        let extendedBinRowNum = extendString binRowNum numInputs
+
+        let setInput ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) state offset = 
+            // Required as we want to set the LSB first, not MSB and the wireData is stored [LSB, .., MSB]                           
+            let reversedOffset = (List.length wireData) - 1 - offset        
+            let curState = match wireData with
+                           | [bit] -> bit
+                           | bits -> bits.[reversedOffset]
+                           | _ -> failwith "not implemented (set input)"
+            let mapping = List.mapi (fun i v -> if i = reversedOffset then state else v) wireData
+            match curState with
+            | Zero ->
+                match state with
+                | One -> feedSimulationInput simGraph (ComponentId inputId) mapping
+                | _ -> simGraph
+            | One ->
+                match state with
+                | Zero -> feedSimulationInput simGraph (ComponentId inputId) mapping
+                | _ -> simGraph
+
+        let mutable bitNum = 0
+        for state in extendedBinRowNum do
+            let inputStates = extractSimulationIOs simData.Inputs simGraph
+
+            let mutable inputStatesList = []
+            for input in inputStates do
+                inputStatesList <- List.append inputStatesList [input]
+
+            let inputIndex = bitNumberToInputIndex bitNum
+            let input = inputStatesList.[inputIndex]
+            let bitOffset = bitNum - inputMapping.[inputIndex]
+            // TODO(jpnock): we can optimise this by setting the whole input in
+            // one go if it's a multi-bit input
+            simGraph <- match state with
+                        | '0' -> setInput input Zero bitOffset
+                        | '1' -> setInput input One bitOffset
+                        | _ -> failwith "not implemented (input zip)"
+            bitNum <- bitNum + 1
+        printf "return"
+        simGraph
+
+    let maxTruthTableValue = (pown 2 numInputs) - 1
+    
+    let simInputs = extractSimulationIOs simData.Inputs simGraph
+    let simOutputs = extractSimulationIOs simData.Outputs simGraph
+
+    let mutable header = "#"
+    for ((ComponentId inputId, ComponentLabel label, width), wireData) in simInputs do
+        match wireData with
+        | [] -> failwith "not implemented (zero input bits generating truth table)" 
+        | [bit] ->
+            header <- header + "\t" + label             
+        | bits ->
+            for i in [ (List.length bits - 1) .. -1 .. 0 ] do
+                header <- header + "\t" + sprintf "%c%d" (Seq.head label) i
+    
+    for ((ComponentId inputId, ComponentLabel label, width), wireData) in simOutputs do
+        header <- header + "\t" + label
+
+    let mutable rows = [ header; ]
+
+    for i in [0 .. maxTruthTableValue] do
+        let simResult = doInputSim i
+        let mutable row = sprintf "%d" i
+
+        let simInputs = extractSimulationIOs simData.Inputs simGraph
+        let simOutputs = extractSimulationIOs simData.Outputs simGraph
+
+        for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in simInputs do
+            for bit in List.rev wireData do
+                // A3, A2, A1, A0
+                let s = match bit with
+                        | Zero -> "\t0"
+                        | One -> "\t1"                
+                row <- row + s
+
+        for ((ComponentId inputId, ComponentLabel inputLabel, width), wireData) in simOutputs do
+            row <- row + if List.length wireData > 1 then "\t0b" else "\t"
+            for bit in List.rev wireData do
+                let s = match bit with
+                        | Zero -> "0"
+                        | One -> "1"                
+                row <- row + s
+        
+        rows <- List.append rows [row]
+
+    (simGraph, rows)
+
+// TODO: remove this from global state
+let mutable private truthTableRows = ""
+
 let private viewSimulationData (simData : SimulationData) model dispatch =
     let hasMultiBitOutputs =
         simData.Outputs |> List.filter (fun (_,_,w) -> w > 1) |> List.isEmpty |> not
@@ -273,6 +420,17 @@ let private viewSimulationData (simData : SimulationData) model dispatch =
             Heading.h5 [ Heading.Props [ Style [ MarginTop "15px" ] ] ] [ str "Stateful components" ]
             viewStatefulComponents (extractStatefulComponents simData.Graph) simData.NumberBase model dispatch
         ]
+
+    let maybeTruthTable = match true with
+                            | false -> div [] []
+                            | true -> div [] [
+                                Textarea.textarea [
+                                    Textarea.Value truthTableRows
+                                    Textarea.IsReadOnly true
+                                ] [
+                                    
+                                ]]
+
     div [] [
         splittedLine maybeBaseSelector maybeClockTickBtn
 
@@ -286,6 +444,20 @@ let private viewSimulationData (simData : SimulationData) model dispatch =
         Heading.h5 [ Heading.Props [ Style [ MarginTop "15px" ] ] ] [ str "Outputs" ]
         viewSimulationOutputs simData.NumberBase
         <| extractSimulationIOs simData.Outputs simData.Graph
+
+        Heading.h5 [ Heading.Props [ Style [ MarginTop "15px" ] ] ] [ str "Truth Table" ]
+
+        Button.button [
+            Button.Color IsPrimary
+            Button.IsHovered false
+            Button.OnClick (fun _ ->
+                        let (simGraph, table) = generateTruthTable simData
+                        truthTableRows <- List.reduce (fun a b -> a + "\n" + b) table
+                        simGraph |> SetSimulationGraph |> dispatch
+                    )            
+        ] [ str <| "Generate truth table" ]
+
+        maybeTruthTable
 
         maybeStatefulComponents
     ]
