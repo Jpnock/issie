@@ -32,6 +32,30 @@ type IsClockTick =
     | Yes of SimulationComponentState // Pass the state only for clock ticks.
 
 
+type SimCompComparable = {
+    Id : ComponentId
+    Type : ComponentType
+    Label : ComponentLabel
+    // Mapping from each input port number to its value (it will be set
+    // during the simulation process).
+    // TODO: maybe using a list would improve performance?
+    Inputs : Map<InputPortNumber, WireData>
+    // Mapping from each output port number to all of the ports and
+    // Components connected to that port.
+    Outputs : Map<OutputPortNumber,(ComponentId * InputPortNumber) list>
+    // this is MUTABLE and used only during clock tick change propagation
+    // location n = true => the output (of a synchronous component) has been
+    // propagated in propagateStateChanges. Location n corresponds to
+    // OutputPortNumber n.
+    // not used except for synchronous components and custom components
+    OutputsPropagated: bool array
+    // State for synchronous stateful components, like flip flops and memories.
+    // The state should only be changed when clock ticks are fed. Other changes
+    // will be ignored.
+    State : SimulationComponentState
+}
+
+
 /// Like Component but with additional dynamic info used by simulator
 /// Clocked components have state data.
 /// All components have optional data on inputs that propagates

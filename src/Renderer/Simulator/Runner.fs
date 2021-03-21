@@ -102,9 +102,24 @@ let rec private feedInput
 
         // Propagate each output produced.
         let graph = feedReducerOutput comp graph diffedOutputMap
+        
         // Update the CustomSimulationGraph and return the new simulation graph.
-        let comp = { comp with CustomSimulationGraph = reducerOutput.NewCustomSimulationGraph }
-        graph.Add (comp.Id, comp)
+        let graphComp = graph.[comp.Id]
+        let compOne = { Id = comp.Id; Type = comp.Type; Label = comp.Label; Inputs = comp.Inputs; Outputs = comp.Outputs; OutputsPropagated = comp.OutputsPropagated; State = comp.State }
+        let compTwo = { Id = graphComp.Id; Type = graphComp.Type; Label = graphComp.Label; Inputs = graphComp.Inputs; Outputs = graphComp.Outputs; OutputsPropagated = graphComp.OutputsPropagated; State = graphComp.State }
+        if compOne <> compTwo then
+            printf "comp does not match after feedReducerOutput (%A) (%A)" compOne compTwo
+            let reducerInput = {
+                Inputs = graphComp.Inputs
+                CustomSimulationGraph = graphComp.CustomSimulationGraph
+                IsClockTick = No
+            }
+            // Try to reduce the component.
+            let reducerOutput = graphComp.Reducer reducerInput            
+            feedReducerOutput graphComp graph (Option.defaultValue Map.empty reducerOutput.Outputs)
+        else
+            let comp = { comp with CustomSimulationGraph = reducerOutput.NewCustomSimulationGraph }
+            graph.Add (comp.Id, comp)
 
 /// Propagate each output produced by a simulation component to all the
 /// components connected to its output ports.
